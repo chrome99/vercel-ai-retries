@@ -1,3 +1,4 @@
+import { RetrySettings } from '../prompt/call-settings';
 import { prepareRetries } from '../prompt/prepare-retries';
 import { assembleOperationName } from '../telemetry/assemble-operation-name';
 import { getBaseTelemetryAttributes } from '../telemetry/get-base-telemetry-attributes';
@@ -15,6 +16,8 @@ Embed a value using an embedding model. The type of the value is defined by the 
 @param value - The value that should be embedded.
 
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
+@param initialDelayInMs - Initial delay in milliseconds for the first retry.
+@param backoffFactor - Backoff factor for the exponential backoff.
 @param abortSignal - An optional abort signal that can be used to cancel the call.
 @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
 
@@ -24,6 +27,8 @@ export async function embed<VALUE>({
   model,
   value,
   maxRetries: maxRetriesArg,
+  initialDelayInMs,
+  backoffFactor,
   abortSignal,
   headers,
   experimental_telemetry: telemetry,
@@ -39,18 +44,6 @@ The value that should be embedded.
   value: VALUE;
 
   /**
-Maximum number of retries per embedding model call. Set to 0 to disable retries.
-
-@default 2
-   */
-  maxRetries?: number;
-
-  /**
-Abort signal.
- */
-  abortSignal?: AbortSignal;
-
-  /**
 Additional headers to include in the request.
 Only applicable for HTTP-based providers.
  */
@@ -60,8 +53,12 @@ Only applicable for HTTP-based providers.
    * Optional telemetry configuration (experimental).
    */
   experimental_telemetry?: TelemetrySettings;
-}): Promise<EmbedResult<VALUE>> {
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+} & RetrySettings): Promise<EmbedResult<VALUE>> {
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
+  });
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
     model,

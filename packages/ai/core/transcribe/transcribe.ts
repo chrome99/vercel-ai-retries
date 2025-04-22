@@ -12,6 +12,7 @@ import {
   detectMimeType,
 } from '../util/detect-mimetype';
 import { TranscriptionResult } from './transcribe-result';
+import { RetrySettings } from '../prompt/call-settings';
 
 /**
 Generates transcripts using a transcription model.
@@ -21,6 +22,8 @@ Generates transcripts using a transcription model.
 @param providerOptions - Additional provider-specific options that are passed through to the provider
 as body parameters.
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
+@param initialDelayInMs - Initial delay in milliseconds for the first retry.
+@param backoffFactor - Backoff factor for the exponential backoff.
 @param abortSignal - An optional abort signal that can be used to cancel the call.
 @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
 
@@ -31,6 +34,8 @@ export async function transcribe({
   audio,
   providerOptions = {},
   maxRetries: maxRetriesArg,
+  initialDelayInMs,
+  backoffFactor,
   abortSignal,
   headers,
 }: {
@@ -61,24 +66,16 @@ record is keyed by the provider-specific metadata key.
   providerOptions?: ProviderOptions;
 
   /**
-Maximum number of retries per transcript model call. Set to 0 to disable retries.
-
-@default 2
-   */
-  maxRetries?: number;
-
-  /**
-Abort signal.
- */
-  abortSignal?: AbortSignal;
-
-  /**
 Additional headers to include in the request.
 Only applicable for HTTP-based providers.
  */
   headers?: Record<string, string>;
-}): Promise<TranscriptionResult> {
-  const { retry } = prepareRetries({ maxRetries: maxRetriesArg });
+} & RetrySettings): Promise<TranscriptionResult> {
+  const { retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
+  });
   const audioData =
     audio instanceof URL
       ? (await download({ url: audio })).data

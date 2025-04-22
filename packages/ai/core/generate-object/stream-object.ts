@@ -15,7 +15,7 @@ import { ServerResponse } from 'http';
 import { z } from 'zod';
 import { NoObjectGeneratedError } from '../../errors/no-object-generated-error';
 import { DelayedPromise } from '../../util/delayed-promise';
-import { CallSettings } from '../prompt/call-settings';
+import { CallSettings, RetrySettings } from '../prompt/call-settings';
 import { convertToLanguageModelPrompt } from '../prompt/convert-to-language-model-prompt';
 import { prepareCallSettings } from '../prompt/prepare-call-settings';
 import { prepareRetries } from '../prompt/prepare-retries';
@@ -478,6 +478,8 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     telemetry,
     settings,
     maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
     abortSignal,
     outputStrategy,
     system,
@@ -497,8 +499,6 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
     settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
-    maxRetries: number | undefined;
-    abortSignal: AbortSignal | undefined;
     outputStrategy: OutputStrategy<PARTIAL, RESULT, ELEMENT_STREAM>;
     system: Prompt['system'];
     prompt: Prompt['prompt'];
@@ -512,9 +512,11 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     generateId: () => string;
     currentDate: () => Date;
     now: () => number;
-  }) {
+  } & RetrySettings) {
     const { maxRetries, retry } = prepareRetries({
       maxRetries: maxRetriesArg,
+      initialDelayInMs,
+      backoffFactor,
     });
 
     const baseTelemetryAttributes = getBaseTelemetryAttributes({

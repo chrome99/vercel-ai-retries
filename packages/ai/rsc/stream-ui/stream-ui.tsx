@@ -92,6 +92,8 @@ export async function streamUI<
   prompt,
   messages,
   maxRetries,
+  initialDelayInMs,
+  backoffFactor,
   abortSignal,
   headers,
   initial,
@@ -258,7 +260,11 @@ functionality that can be fully encapsulated in the provider.
     renderFinished.resolve(undefined);
   }
 
-  const { retry } = prepareRetries({ maxRetries });
+  const { retry } = prepareRetries({
+    maxRetries,
+    initialDelayInMs,
+    backoffFactor,
+  });
 
   const validatedPrompt = standardizePrompt({
     prompt: { system, prompt, messages },

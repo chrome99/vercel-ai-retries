@@ -355,6 +355,8 @@ export async function generateObject<SCHEMA, RESULT>({
   prompt,
   messages,
   maxRetries: maxRetriesArg,
+  initialDelayInMs,
+  backoffFactor,
   abortSignal,
   headers,
   experimental_repairText: repairText,
@@ -407,7 +409,11 @@ export async function generateObject<SCHEMA, RESULT>({
     enumValues,
   });
 
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
+  });
 
   const outputStrategy = getOutputStrategy({
     output,

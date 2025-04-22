@@ -11,7 +11,7 @@ import { asArray } from '../../util/as-array';
 import { consumeStream } from '../../util/consume-stream';
 import { DelayedPromise } from '../../util/delayed-promise';
 import { DataStreamWriter } from '../data-stream/data-stream-writer';
-import { CallSettings } from '../prompt/call-settings';
+import { CallSettings, RetrySettings } from '../prompt/call-settings';
 import { convertToLanguageModelPrompt } from '../prompt/convert-to-language-model-prompt';
 import { CoreAssistantMessage } from '../prompt/message';
 import { prepareCallSettings } from '../prompt/prepare-call-settings';
@@ -173,6 +173,8 @@ If set, the model will stop generating text when one of the stop sequences is ge
 If set and supported by the model, calls will generate deterministic results.
 
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
+@param initialDelayInMs - Initial delay in milliseconds for the first retry.
+@param backoffFactor - Backoff factor for the exponential backoff.
 @param abortSignal - An optional abort signal that can be used to cancel the call.
 @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
 
@@ -529,6 +531,8 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
     headers,
     settings,
     maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
     abortSignal,
     system,
     prompt,
@@ -556,8 +560,6 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
     settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
-    maxRetries: number | undefined;
-    abortSignal: AbortSignal | undefined;
     system: Prompt['system'];
     prompt: Prompt['prompt'];
     messages: Prompt['messages'];
@@ -581,7 +583,7 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
     onError: undefined | StreamTextOnErrorCallback;
     onFinish: undefined | StreamTextOnFinishCallback<TOOLS>;
     onStepFinish: undefined | StreamTextOnStepFinishCallback<TOOLS>;
-  }) {
+  } & RetrySettings) {
     if (maxSteps < 1) {
       throw new InvalidArgumentError({
         parameter: 'maxSteps',
@@ -897,6 +899,8 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
 
     const { maxRetries, retry } = prepareRetries({
       maxRetries: maxRetriesArg,
+      initialDelayInMs,
+      backoffFactor,
     });
 
     const tracer = getTracer(telemetry);

@@ -13,9 +13,20 @@ export function prepareCallSettings({
   frequencyPenalty,
   stopSequences,
   seed,
-}: Omit<CallSettings, 'abortSignal' | 'headers' | 'maxRetries'>): Omit<
+}: Omit<
   CallSettings,
-  'abortSignal' | 'headers' | 'maxRetries'
+  | 'abortSignal'
+  | 'headers'
+  | 'maxRetries'
+  | 'initialDelayInMs'
+  | 'backoffFactor'
+>): Omit<
+  CallSettings,
+  | 'abortSignal'
+  | 'headers'
+  | 'maxRetries'
+  | 'initialDelayInMs'
+  | 'backoffFactor'
 > {
   if (maxTokens != null) {
     if (!Number.isInteger(maxTokens)) {

@@ -9,12 +9,50 @@ import {
  */
 export function prepareRetries({
   maxRetries,
+  initialDelayInMs,
+  backoffFactor,
 }: {
   maxRetries: number | undefined;
+  initialDelayInMs: number | undefined;
+  backoffFactor: number | undefined;
 }): {
   maxRetries: number;
   retry: RetryFunction;
 } {
+  if (initialDelayInMs != null) {
+    if (!Number.isInteger(initialDelayInMs)) {
+      throw new InvalidArgumentError({
+        parameter: 'initialDelayInMs',
+        value: initialDelayInMs,
+        message: 'initialDelayInMs must be an integer',
+      });
+    }
+    if (initialDelayInMs < 0) {
+      throw new InvalidArgumentError({
+        parameter: 'initialDelayInMs',
+        value: initialDelayInMs,
+        message: 'initialDelayInMs must be >= 0',
+      });
+    }
+  }
+
+  if (backoffFactor != null) {
+    if (!Number.isInteger(backoffFactor)) {
+      throw new InvalidArgumentError({
+        parameter: 'backoffFactor',
+        value: backoffFactor,
+        message: 'backoffFactor must be an integer',
+      });
+    }
+    if (backoffFactor < 1) {
+      throw new InvalidArgumentError({
+        parameter: 'backoffFactor',
+        value: backoffFactor,
+        message: 'backoffFactor must be >= 1',
+      });
+    }
+  }
+
   if (maxRetries != null) {
     if (!Number.isInteger(maxRetries)) {
       throw new InvalidArgumentError({
@@ -37,6 +75,10 @@ export function prepareRetries({
 
   return {
     maxRetries: maxRetriesResult,
-    retry: retryWithExponentialBackoff({ maxRetries: maxRetriesResult }),
+    retry: retryWithExponentialBackoff({
+      maxRetries: maxRetriesResult,
+      initialDelayInMs,
+      backoffFactor,
+    }),
   };
 }

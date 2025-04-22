@@ -92,6 +92,8 @@ If set, the model will stop generating text when one of the stop sequences is ge
 If set and supported by the model, calls will generate deterministic results.
 
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
+@param initialDelayInMs - Initial delay in milliseconds for the first retry.
+@param backoffFactor - Backoff factor for the exponential backoff.
 @param abortSignal - An optional abort signal that can be used to cancel the call.
 @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
 
@@ -115,6 +117,8 @@ export async function generateText<
   prompt,
   messages,
   maxRetries: maxRetriesArg,
+  initialDelayInMs,
+  backoffFactor,
   abortSignal,
   headers,
   maxSteps = 1,
@@ -224,7 +228,11 @@ A function that attempts to repair a tool call that failed to parse.
     });
   }
 
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    initialDelayInMs,
+    backoffFactor,
+  });
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
     model,

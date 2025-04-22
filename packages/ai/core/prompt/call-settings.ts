@@ -1,4 +1,4 @@
-export type CallSettings = {
+export type CallSettings = RetrySettings & {
   /**
 Maximum number of tokens to generate.
    */
@@ -64,6 +64,14 @@ by the model, calls will generate deterministic results.
   seed?: number;
 
   /**
+Additional HTTP headers to be sent with the request.
+Only applicable for HTTP-based providers.
+   */
+  headers?: Record<string, string | undefined>;
+};
+
+export type RetrySettings = {
+  /**
 Maximum number of retries. Set to 0 to disable retries.
 
 @default 2
@@ -71,13 +79,22 @@ Maximum number of retries. Set to 0 to disable retries.
   maxRetries?: number;
 
   /**
+Initial delay in milliseconds before retrying a failed call.
+
+@default 1000
+ */
+  initialDelayInMs?: number;
+
+  /**
+Backoff factor to apply for subsequent retries. The delay will be multiplied
+by this factor after each retry.
+
+@default 2
+ */
+  backoffFactor?: number;
+
+  /**
 Abort signal.
    */
   abortSignal?: AbortSignal;
-
-  /**
-Additional HTTP headers to be sent with the request.
-Only applicable for HTTP-based providers.
-   */
-  headers?: Record<string, string | undefined>;
 };

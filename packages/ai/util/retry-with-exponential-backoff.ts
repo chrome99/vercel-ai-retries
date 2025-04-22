@@ -15,12 +15,19 @@ export const retryWithExponentialBackoff =
     maxRetries = 2,
     initialDelayInMs = 2000,
     backoffFactor = 2,
+    retryOnError,
+  }: {
+    maxRetries?: number;
+    initialDelayInMs?: number;
+    backoffFactor?: number;
+    retryOnError?: (error: unknown) => boolean;
   } = {}): RetryFunction =>
   async <OUTPUT>(f: () => PromiseLike<OUTPUT>) =>
     _retryWithExponentialBackoff(f, {
       maxRetries,
       delayInMs: initialDelayInMs,
       backoffFactor,
+      retryOnError,
     });
 
 async function _retryWithExponentialBackoff<OUTPUT>(
@@ -29,7 +36,13 @@ async function _retryWithExponentialBackoff<OUTPUT>(
     maxRetries,
     delayInMs,
     backoffFactor,
-  }: { maxRetries: number; delayInMs: number; backoffFactor: number },
+    retryOnError,
+  }: {
+    maxRetries: number;
+    delayInMs: number;
+    backoffFactor: number;
+    retryOnError?: (error: unknown) => boolean;
+  },
   errors: unknown[] = [],
 ): Promise<OUTPUT> {
   try {
@@ -41,6 +54,10 @@ async function _retryWithExponentialBackoff<OUTPUT>(
 
     if (maxRetries === 0) {
       throw error; // don't wrap the error when retries are disabled
+    }
+
+    if (retryOnError != null && !retryOnError(error)) {
+      throw error; // don't retry when the error is not retryable
     }
 
     const errorMessage = getErrorMessage(error);

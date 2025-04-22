@@ -20,6 +20,7 @@ export function prepareCallSettings({
   | 'maxRetries'
   | 'initialDelayInMs'
   | 'backoffFactor'
+  | 'retryOnError'
 >): Omit<
   CallSettings,
   | 'abortSignal'
@@ -27,6 +28,7 @@ export function prepareCallSettings({
   | 'maxRetries'
   | 'initialDelayInMs'
   | 'backoffFactor'
+  | 'retryOnError'
 > {
   if (maxTokens != null) {
     if (!Number.isInteger(maxTokens)) {

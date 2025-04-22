@@ -11,10 +11,12 @@ export function prepareRetries({
   maxRetries,
   initialDelayInMs,
   backoffFactor,
+  retryOnError,
 }: {
   maxRetries: number | undefined;
   initialDelayInMs: number | undefined;
   backoffFactor: number | undefined;
+  retryOnError?: (error: unknown) => boolean;
 }): {
   maxRetries: number;
   retry: RetryFunction;
@@ -53,6 +55,23 @@ export function prepareRetries({
     }
   }
 
+  if (retryOnError != null) {
+    if (typeof retryOnError !== 'function') {
+      throw new InvalidArgumentError({
+        parameter: 'retryOnError',
+        value: retryOnError,
+        message: 'retryOnError must be a function',
+      });
+    }
+    if (retryOnError.length !== 1) {
+      throw new InvalidArgumentError({
+        parameter: 'retryOnError',
+        value: retryOnError,
+        message: 'retryOnError must be a function with one argument',
+      });
+    }
+  }
+
   if (maxRetries != null) {
     if (!Number.isInteger(maxRetries)) {
       throw new InvalidArgumentError({
@@ -79,6 +98,7 @@ export function prepareRetries({
       maxRetries: maxRetriesResult,
       initialDelayInMs,
       backoffFactor,
+      retryOnError,
     }),
   };
 }

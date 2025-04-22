@@ -94,6 +94,7 @@ export async function streamUI<
   maxRetries,
   initialDelayInMs,
   backoffFactor,
+  retryOnError,
   abortSignal,
   headers,
   initial,
@@ -264,6 +265,7 @@ functionality that can be fully encapsulated in the provider.
     maxRetries,
     initialDelayInMs,
     backoffFactor,
+    retryOnError,
   });
 
   const validatedPrompt = standardizePrompt({

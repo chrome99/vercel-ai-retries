@@ -480,6 +480,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     maxRetries: maxRetriesArg,
     initialDelayInMs,
     backoffFactor,
+    retryOnError,
     abortSignal,
     outputStrategy,
     system,
@@ -498,7 +499,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     model: LanguageModel;
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
-    settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
+    settings: Omit<CallSettings, 'abortSignal' | 'headers' | 'retryOnError'>;
     outputStrategy: OutputStrategy<PARTIAL, RESULT, ELEMENT_STREAM>;
     system: Prompt['system'];
     prompt: Prompt['prompt'];
@@ -517,6 +518,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
       maxRetries: maxRetriesArg,
       initialDelayInMs,
       backoffFactor,
+      retryOnError,
     });
 
     const baseTelemetryAttributes = getBaseTelemetryAttributes({

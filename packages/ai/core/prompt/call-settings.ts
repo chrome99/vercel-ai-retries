@@ -94,6 +94,11 @@ by this factor after each retry.
   backoffFactor?: number;
 
   /**
+Whether to retry on specific errors. By default, all errors are retried.
+  */
+  retryOnError?: (error: unknown) => boolean;
+
+  /**
 Abort signal.
    */
   abortSignal?: AbortSignal;

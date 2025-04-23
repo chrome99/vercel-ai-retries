@@ -1,9 +1,10 @@
 import { APICallError } from '@ai-sdk/provider';
 import { delay, getErrorMessage, isAbortError } from '@ai-sdk/provider-utils';
 import { RetryError } from './retry-error';
+import { AllowedModels, ModelPool } from '../core/types/model-pool';
 
-export type RetryFunction = <OUTPUT>(
-  fn: () => PromiseLike<OUTPUT>,
+export type RetryFunction<ModelType extends AllowedModels> = <OUTPUT>(
+  fn: (model: ModelType) => PromiseLike<OUTPUT>,
 ) => PromiseLike<OUTPUT>;
 
 /**
@@ -11,29 +12,48 @@ The `retryWithExponentialBackoff` strategy retries a failed API call with an exp
 You can configure the maximum number of retries, the initial delay, and the backoff factor.
  */
 export const retryWithExponentialBackoff =
-  ({
+  <ModelType extends AllowedModels>({
     maxRetries = 2,
     initialDelayInMs = 2000,
     backoffFactor = 2,
-  } = {}): RetryFunction =>
-  async <OUTPUT>(f: () => PromiseLike<OUTPUT>) =>
+    fallbackModels,
+  }: {
+    maxRetries?: number;
+    initialDelayInMs?: number;
+    backoffFactor?: number;
+    fallbackModels: ModelPool<ModelType>;
+  }): RetryFunction<ModelType> =>
+  async <OUTPUT>(f: (model: ModelType) => PromiseLike<OUTPUT>) =>
     _retryWithExponentialBackoff(f, {
       maxRetries,
       delayInMs: initialDelayInMs,
       backoffFactor,
+      fallbackModels,
+      modelIndex: 0,
     });
 
-async function _retryWithExponentialBackoff<OUTPUT>(
-  f: () => PromiseLike<OUTPUT>,
+async function _retryWithExponentialBackoff<
+  ModelType extends AllowedModels,
+  OUTPUT,
+>(
+  f: (model: ModelType) => PromiseLike<OUTPUT>,
   {
     maxRetries,
     delayInMs,
     backoffFactor,
-  }: { maxRetries: number; delayInMs: number; backoffFactor: number },
+    fallbackModels,
+    modelIndex,
+  }: {
+    maxRetries: number;
+    delayInMs: number;
+    backoffFactor: number;
+    fallbackModels: ModelPool<ModelType>;
+    modelIndex: number;
+  },
   errors: unknown[] = [],
 ): Promise<OUTPUT> {
   try {
-    return await f();
+    return await f(fallbackModels[modelIndex]);
   } catch (error) {
     if (isAbortError(error)) {
       throw error; // don't retry when the request was aborted
@@ -55,6 +75,7 @@ async function _retryWithExponentialBackoff<OUTPUT>(
       });
     }
 
+    const lastModel = modelIndex === fallbackModels.length - 1;
     if (
       error instanceof Error &&
       APICallError.isInstance(error) &&
@@ -64,7 +85,13 @@ async function _retryWithExponentialBackoff<OUTPUT>(
       await delay(delayInMs);
       return _retryWithExponentialBackoff(
         f,
-        { maxRetries, delayInMs: backoffFactor * delayInMs, backoffFactor },
+        {
+          maxRetries,
+          delayInMs: lastModel ? backoffFactor * delayInMs : delayInMs, // only increase the delay if retrying the last model
+          backoffFactor,
+          fallbackModels,
+          modelIndex: lastModel ? modelIndex : modelIndex + 1, // switch to the next model, or stick to last
+        },
         newErrors,
       );
     }

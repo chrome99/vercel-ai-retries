@@ -6,12 +6,14 @@ import { recordSpan } from '../telemetry/record-span';
 import { selectTelemetryAttributes } from '../telemetry/select-telemetry-attributes';
 import { TelemetrySettings } from '../telemetry/telemetry-settings';
 import { EmbeddingModel } from '../types';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 import { EmbedResult } from './embed-result';
 
 /**
 Embed a value using an embedding model. The type of the value is defined by the embedding model.
 
-@param model - The embedding model to use.
+@param model - The embedding model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param value - The value that should be embedded.
 
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
@@ -29,9 +31,9 @@ export async function embed<VALUE>({
   experimental_telemetry: telemetry,
 }: {
   /**
-The embedding model to use.
+The embedding model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
      */
-  model: EmbeddingModel<VALUE>;
+  model: ModelPoolInput<EmbeddingModel<VALUE>>;
 
   /**
 The value that should be embedded.
@@ -61,10 +63,15 @@ Only applicable for HTTP-based providers.
    */
   experimental_telemetry?: TelemetrySettings;
 }): Promise<EmbedResult<VALUE>> {
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
-    model,
+    model: primaryModel,
     telemetry,
     headers,
     settings: { maxRetries },
@@ -84,7 +91,7 @@ Only applicable for HTTP-based providers.
     }),
     tracer,
     fn: async span => {
-      const { embedding, usage, rawResponse } = await retry(() =>
+      const { embedding, usage, rawResponse } = await retry(model =>
         // nested spans to align with the embedMany telemetry data:
         recordSpan({
           name: 'ai.embed.doEmbed',

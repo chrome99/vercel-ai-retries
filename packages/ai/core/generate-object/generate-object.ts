@@ -35,6 +35,8 @@ import { GenerateObjectResult } from './generate-object-result';
 import { injectJsonInstruction } from './inject-json-instruction';
 import { getOutputStrategy } from './output-strategy';
 import { validateObjectGenerationInput } from './validate-object-generation-input';
+import { normalizeModelPool } from '../util/normalize-pool';
+import { ModelPoolInput } from '../types/model-pool';
 
 const originalGenerateId = createIdGenerator({ prefix: 'aiobj', size: 24 });
 
@@ -63,9 +65,9 @@ export async function generateObject<OBJECT>(
       output?: 'object' | undefined;
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The schema of the object that the model should generate.
@@ -148,9 +150,9 @@ export async function generateObject<ELEMENT>(
       output: 'array';
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The element schema of the array that the model should generate.
@@ -232,9 +234,9 @@ export async function generateObject<ENUM extends string>(
       output: 'enum';
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The enum values that the model should use.
@@ -302,9 +304,9 @@ export async function generateObject(
       output: 'no-schema';
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The mode to use for object generation. Must be "json" for no-schema output.
@@ -379,7 +381,7 @@ export async function generateObject<SCHEMA, RESULT>({
      */
     output?: 'object' | 'array' | 'enum' | 'no-schema';
 
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
     enum?: Array<SCHEMA>;
     schema?: z.Schema<SCHEMA, z.ZodTypeDef, any> | Schema<SCHEMA>;
     schemaName?: string;
@@ -407,7 +409,12 @@ export async function generateObject<SCHEMA, RESULT>({
     enumValues,
   });
 
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
 
   const outputStrategy = getOutputStrategy({
     output,
@@ -421,7 +428,7 @@ export async function generateObject<SCHEMA, RESULT>({
   }
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
-    model,
+    model: primaryModel,
     telemetry,
     headers,
     settings: { ...settings, maxRetries },
@@ -457,7 +464,7 @@ export async function generateObject<SCHEMA, RESULT>({
     fn: async span => {
       // use the default provider mode when the mode is set to 'auto' or unspecified
       if (mode === 'auto' || mode == null) {
-        mode = model.defaultObjectGenerationMode;
+        mode = primaryModel.defaultObjectGenerationMode;
       }
 
       let result: string;
@@ -479,7 +486,7 @@ export async function generateObject<SCHEMA, RESULT>({
               system:
                 outputStrategy.jsonSchema == null
                   ? injectJsonInstruction({ prompt: system })
-                  : model.supportsStructuredOutputs
+                  : primaryModel.supportsStructuredOutputs
                     ? system
                     : injectJsonInstruction({
                         prompt: system,
@@ -493,11 +500,11 @@ export async function generateObject<SCHEMA, RESULT>({
 
           const promptMessages = await convertToLanguageModelPrompt({
             prompt: standardizedPrompt,
-            modelSupportsImageUrls: model.supportsImageUrls,
-            modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context
+            modelSupportsImageUrls: primaryModel.supportsImageUrls,
+            modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context
           });
 
-          const generateResult = await retry(() =>
+          const generateResult = await retry(model =>
             recordSpan({
               name: 'ai.generateObject.doGenerate',
               attributes: selectTelemetryAttributes({
@@ -613,12 +620,12 @@ export async function generateObject<SCHEMA, RESULT>({
 
           const promptMessages = await convertToLanguageModelPrompt({
             prompt: standardizedPrompt,
-            modelSupportsImageUrls: model.supportsImageUrls,
-            modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context,
+            modelSupportsImageUrls: primaryModel.supportsImageUrls,
+            modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context,
           });
           const inputFormat = standardizedPrompt.type;
 
-          const generateResult = await retry(() =>
+          const generateResult = await retry(model =>
             recordSpan({
               name: 'ai.generateObject.doGenerate',
               attributes: selectTelemetryAttributes({

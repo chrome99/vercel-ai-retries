@@ -53,6 +53,8 @@ import { injectJsonInstruction } from './inject-json-instruction';
 import { OutputStrategy, getOutputStrategy } from './output-strategy';
 import { ObjectStreamPart, StreamObjectResult } from './stream-object-result';
 import { validateObjectGenerationInput } from './validate-object-generation-input';
+import { normalizeModelPool } from '../util/normalize-pool';
+import { ModelPoolInput } from '../types/model-pool';
 
 const originalGenerateId = createIdGenerator({ prefix: 'aiobj', size: 24 });
 
@@ -123,9 +125,9 @@ export function streamObject<OBJECT>(
       output?: 'object' | undefined;
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The schema of the object that the model should generate.
@@ -214,9 +216,9 @@ export function streamObject<ELEMENT>(
       output: 'array';
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The element schema of the array that the model should generate.
@@ -309,9 +311,9 @@ export function streamObject(
       output: 'no-schema';
 
       /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-      model: LanguageModel;
+      model: ModelPoolInput<LanguageModel>;
 
       /**
 The mode to use for object generation. Must be "json" for no-schema output.
@@ -394,7 +396,7 @@ export function streamObject<SCHEMA, PARTIAL, RESULT, ELEMENT_STREAM>({
      */
     output?: 'object' | 'array' | 'no-schema';
 
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
     schema?: z.Schema<SCHEMA, z.ZodTypeDef, any> | Schema<SCHEMA>;
     schemaName?: string;
     schemaDescription?: string;
@@ -493,7 +495,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     currentDate,
     now,
   }: {
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
     settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
@@ -513,12 +515,15 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     currentDate: () => Date;
     now: () => number;
   }) {
+    const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
     const { maxRetries, retry } = prepareRetries({
       maxRetries: maxRetriesArg,
+      fallbackModels,
     });
 
     const baseTelemetryAttributes = getBaseTelemetryAttributes({
-      model,
+      model: primaryModel,
       telemetry,
       headers,
       settings: { ...settings, maxRetries },
@@ -574,7 +579,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
       fn: async rootSpan => {
         // use the default provider mode when the mode is set to 'auto' or unspecified
         if (mode === 'auto' || mode == null) {
-          mode = model.defaultObjectGenerationMode;
+          mode = primaryModel.defaultObjectGenerationMode;
         }
 
         let callOptions: LanguageModelV1CallOptions;
@@ -590,7 +595,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
                 system:
                   outputStrategy.jsonSchema == null
                     ? injectJsonInstruction({ prompt: system })
-                    : model.supportsStructuredOutputs
+                    : primaryModel.supportsStructuredOutputs
                       ? system
                       : injectJsonInstruction({
                           prompt: system,
@@ -613,8 +618,8 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
               inputFormat: standardizedPrompt.type,
               prompt: await convertToLanguageModelPrompt({
                 prompt: standardizedPrompt,
-                modelSupportsImageUrls: model.supportsImageUrls,
-                modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context
+                modelSupportsImageUrls: primaryModel.supportsImageUrls,
+                modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context
               }),
               providerMetadata: providerOptions,
               abortSignal,
@@ -660,8 +665,8 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
               inputFormat: standardizedPrompt.type,
               prompt: await convertToLanguageModelPrompt({
                 prompt: standardizedPrompt,
-                modelSupportsImageUrls: model.supportsImageUrls,
-                modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context,
+                modelSupportsImageUrls: primaryModel.supportsImageUrls,
+                modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context,
               }),
               providerMetadata: providerOptions,
               abortSignal,
@@ -702,7 +707,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
           result: { stream, warnings, rawResponse, request },
           doStreamSpan,
           startTimestampMs,
-        } = await retry(() =>
+        } = await retry(model =>
           recordSpan({
             name: 'ai.streamObject.doStream',
             attributes: selectTelemetryAttributes({
@@ -761,7 +766,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
         } = {
           id: generateId(),
           timestamp: currentDate(),
-          modelId: model.modelId,
+          modelId: primaryModel.modelId,
         };
 
         // Keep track of raw parse result before type validation, since e.g. Zod might

@@ -64,6 +64,8 @@ import { ToolCallUnion } from './tool-call';
 import { ToolCallRepairFunction } from './tool-call-repair';
 import { ToolResultUnion } from './tool-result';
 import { ToolSet } from './tool-set';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 
 const originalGenerateId = createIdGenerator({
   prefix: 'aitxt',
@@ -144,7 +146,7 @@ Generate a text and call tools for a given prompt using a language model.
 
 This function streams the output. If you do not want to stream the output, use `generateText` instead.
 
-@param model - The language model to use.
+@param model - The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param tools - Tools that are accessible to and can be called by the model. The model needs to support calling tools.
 
 @param system - A system message that will be part of the prompt.
@@ -227,9 +229,9 @@ export function streamText<
 }: CallSettings &
   Prompt & {
     /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
 
     /**
 The tools that the model can call. The model needs to support calling tools.
@@ -552,7 +554,7 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
     onFinish,
     onStepFinish,
   }: {
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
     settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
@@ -590,6 +592,8 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
       });
     }
 
+    const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
     this.output = output;
 
     // event processor for telemetry, invoking callbacks, etc.
@@ -612,7 +616,7 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
     } = {
       id: generateId(),
       timestamp: currentDate(),
-      modelId: model.modelId,
+      modelId: primaryModel.modelId,
       messages: [],
     };
     let recordedToolCalls: ToolCallUnion<TOOLS>[] = [];
@@ -897,12 +901,13 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
 
     const { maxRetries, retry } = prepareRetries({
       maxRetries: maxRetriesArg,
+      fallbackModels,
     });
 
     const tracer = getTracer(telemetry);
 
     const baseTelemetryAttributes = getBaseTelemetryAttributes({
-      model,
+      model: primaryModel,
       telemetry,
       headers,
       settings: { ...settings, maxRetries },
@@ -910,7 +915,9 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
 
     const initialPrompt = standardizePrompt({
       prompt: {
-        system: output?.injectIntoSystemPrompt({ system, model }) ?? system,
+        system:
+          output?.injectIntoSystemPrompt({ system, model: primaryModel }) ??
+          system,
         prompt,
         messages,
       },
@@ -970,8 +977,8 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
               system: initialPrompt.system,
               messages: stepInputMessages,
             },
-            modelSupportsImageUrls: model.supportsImageUrls,
-            modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context
+            modelSupportsImageUrls: primaryModel.supportsImageUrls,
+            modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context
           });
 
           const mode = {
@@ -983,7 +990,7 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
             result: { stream, warnings, rawResponse, request },
             doStreamSpan,
             startTimestampMs,
-          } = await retry(() =>
+          } = await retry(model =>
             recordSpan({
               name: 'ai.streamText.doStream',
               attributes: selectTelemetryAttributes({
@@ -1078,7 +1085,7 @@ class DefaultStreamTextResult<TOOLS extends ToolSet, OUTPUT, PARTIAL_OUTPUT>
           let stepResponse: { id: string; timestamp: Date; modelId: string } = {
             id: generateId(),
             timestamp: currentDate(),
-            modelId: model.modelId,
+            modelId: primaryModel.modelId,
           };
 
           // chunk buffer when using continue:

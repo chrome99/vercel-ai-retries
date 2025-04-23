@@ -6,6 +6,8 @@ import { recordSpan } from '../telemetry/record-span';
 import { selectTelemetryAttributes } from '../telemetry/select-telemetry-attributes';
 import { TelemetrySettings } from '../telemetry/telemetry-settings';
 import { Embedding, EmbeddingModel } from '../types';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 import { splitArray } from '../util/split-array';
 import { EmbedManyResult } from './embed-many-result';
 
@@ -16,7 +18,7 @@ by the embedding model.
 `embedMany` automatically splits large requests into smaller chunks if the model
 has a limit on how many embeddings can be generated in a single call.
 
-@param model - The embedding model to use.
+@param model - The embedding model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param values - The values that should be embedded.
 
 @param maxRetries - Maximum number of retries. Set to 0 to disable retries. Default: 2.
@@ -34,9 +36,9 @@ export async function embedMany<VALUE>({
   experimental_telemetry: telemetry,
 }: {
   /**
-The embedding model to use.
+The embedding model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
      */
-  model: EmbeddingModel<VALUE>;
+  model: ModelPoolInput<EmbeddingModel<VALUE>>;
 
   /**
 The values that should be embedded.
@@ -66,10 +68,15 @@ Only applicable for HTTP-based providers.
    */
   experimental_telemetry?: TelemetrySettings;
 }): Promise<EmbedManyResult<VALUE>> {
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
-    model,
+    model: primaryModel,
     telemetry,
     headers,
     settings: { maxRetries },
@@ -92,12 +99,12 @@ Only applicable for HTTP-based providers.
     }),
     tracer,
     fn: async span => {
-      const maxEmbeddingsPerCall = model.maxEmbeddingsPerCall;
+      const maxEmbeddingsPerCall = primaryModel.maxEmbeddingsPerCall;
 
       // the model has not specified limits on
       // how many embeddings can be generated in a single call
       if (maxEmbeddingsPerCall == null) {
-        const { embeddings, usage } = await retry(() => {
+        const { embeddings, usage } = await retry(model => {
           // nested spans to align with the embedMany telemetry data:
           return recordSpan({
             name: 'ai.embedMany.doEmbed',
@@ -168,7 +175,7 @@ Only applicable for HTTP-based providers.
       let tokens = 0;
 
       for (const chunk of valueChunks) {
-        const { embeddings: responseEmbeddings, usage } = await retry(() => {
+        const { embeddings: responseEmbeddings, usage } = await retry(model => {
           // nested spans to align with the embedMany telemetry data:
           return recordSpan({
             name: 'ai.embedMany.doEmbed',

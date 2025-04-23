@@ -12,11 +12,13 @@ import {
   detectMimeType,
 } from '../util/detect-mimetype';
 import { TranscriptionResult } from './transcribe-result';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 
 /**
 Generates transcripts using a transcription model.
 
-@param model - The transcription model to use.
+@param model - The transcription model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param audio - The audio data to transcribe as DataContent (string | Uint8Array | ArrayBuffer | Buffer) or a URL.
 @param providerOptions - Additional provider-specific options that are passed through to the provider
 as body parameters.
@@ -35,9 +37,11 @@ export async function transcribe({
   headers,
 }: {
   /**
-The transcription model to use.
+The transcription model or models to use. You can provide a single model or an ordered array of fallback models.
+If multiple models are given, they will be tried in order. Each retry moves to the next model.
+Once the last model is reached, it will be retried until all retry attempts are exhausted. 
      */
-  model: TranscriptionModelV1;
+  model: ModelPoolInput<TranscriptionModelV1>;
 
   /**
 The audio data to transcribe.
@@ -78,13 +82,18 @@ Only applicable for HTTP-based providers.
  */
   headers?: Record<string, string>;
 }): Promise<TranscriptionResult> {
-  const { retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
   const audioData =
     audio instanceof URL
       ? (await download({ url: audio })).data
       : convertDataContentToUint8Array(audio);
 
-  const result = await retry(() =>
+  const result = await retry(model =>
     model.doGenerate({
       audio: audioData,
       abortSignal,

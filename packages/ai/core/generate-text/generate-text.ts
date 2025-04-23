@@ -36,6 +36,8 @@ import { ToolCallArray } from './tool-call';
 import { ToolCallRepairFunction } from './tool-call-repair';
 import { ToolResultArray } from './tool-result';
 import { ToolSet } from './tool-set';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 
 const originalGenerateId = createIdGenerator({
   prefix: 'aitxt',
@@ -61,7 +63,7 @@ Generate a text and call tools for a given prompt using a language model.
 
 This function does not stream the output. If you want to stream the output, use `streamText` instead.
 
-@param model - The language model to use.
+@param model - The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 
 @param tools - Tools that are accessible to and can be called by the model. The model needs to support calling tools.
 @param toolChoice - The tool choice strategy. Default: 'auto'.
@@ -135,9 +137,9 @@ export async function generateText<
 }: CallSettings &
   Prompt & {
     /**
-The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-    model: LanguageModel;
+    model: ModelPoolInput<LanguageModel>;
 
     /**
 The tools that the model can call. The model needs to support calling tools.
@@ -224,10 +226,15 @@ A function that attempts to repair a tool call that failed to parse.
     });
   }
 
-  const { maxRetries, retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { maxRetries, retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
 
   const baseTelemetryAttributes = getBaseTelemetryAttributes({
-    model,
+    model: primaryModel,
     telemetry,
     headers,
     settings: { ...settings, maxRetries },
@@ -235,7 +242,9 @@ A function that attempts to repair a tool call that failed to parse.
 
   const initialPrompt = standardizePrompt({
     prompt: {
-      system: output?.injectIntoSystemPrompt({ system, model }) ?? system,
+      system:
+        output?.injectIntoSystemPrompt({ system, model: primaryModel }) ??
+        system,
       prompt,
       messages,
     },
@@ -304,11 +313,11 @@ A function that attempts to repair a tool call that failed to parse.
             system: initialPrompt.system,
             messages: stepInputMessages,
           },
-          modelSupportsImageUrls: model.supportsImageUrls,
-          modelSupportsUrl: model.supportsUrl?.bind(model), // support 'this' context
+          modelSupportsImageUrls: primaryModel.supportsImageUrls,
+          modelSupportsUrl: primaryModel.supportsUrl?.bind(primaryModel), // support 'this' context
         });
 
-        currentModelResponse = await retry(() =>
+        currentModelResponse = await retry(model =>
           recordSpan({
             name: 'ai.generateText.doGenerate',
             attributes: selectTelemetryAttributes({

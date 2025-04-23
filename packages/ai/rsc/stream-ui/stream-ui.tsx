@@ -26,6 +26,7 @@ import { createResolvablePromise } from '../../util/create-resolvable-promise';
 import { isAsyncGenerator } from '../../util/is-async-generator';
 import { isGenerator } from '../../util/is-generator';
 import { createStreamableUI } from '../streamable-ui/create-streamable-ui';
+import { normalizeModelPool } from '../../core/util/normalize-pool';
 
 type Streamable = ReactNode | Promise<ReactNode>;
 
@@ -103,9 +104,9 @@ export async function streamUI<
 }: CallSettings &
   Prompt & {
     /**
-     * The language model to use.
+The language model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted. 
      */
-    model: LanguageModelV1;
+    model: LanguageModelV1 | LanguageModelV1[];
 
     /**
      * The tools that the model can call. The model needs to support calling tools.
@@ -165,8 +166,10 @@ functionality that can be fully encapsulated in the provider.
       };
     }) => Promise<void> | void;
   }): Promise<RenderResult> {
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
   // TODO: Remove these errors after the experimental phase.
-  if (typeof model === 'string') {
+  if (typeof primaryModel === 'string') {
     throw new Error(
       '`model` cannot be a string in `streamUI`. Use the actual model instance instead.',
     );
@@ -258,13 +261,16 @@ functionality that can be fully encapsulated in the provider.
     renderFinished.resolve(undefined);
   }
 
-  const { retry } = prepareRetries({ maxRetries });
+  const { retry } = prepareRetries({
+    maxRetries,
+    fallbackModels,
+  });
 
   const validatedPrompt = standardizePrompt({
     prompt: { system, prompt, messages },
     tools: undefined, // streamUI tools don't support multi-modal tool result conversion
   });
-  const result = await retry(async () =>
+  const result = await retry(async model =>
     model.doStream({
       mode: {
         type: 'regular',

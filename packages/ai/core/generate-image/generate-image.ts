@@ -12,11 +12,13 @@ import {
   detectMimeType,
   imageMimeTypeSignatures,
 } from '../util/detect-mimetype';
+import { normalizeModelPool } from '../util/normalize-pool';
+import { ModelPoolInput } from '../types/model-pool';
 
 /**
 Generates images using an image model.
 
-@param model - The image model to use.
+@param model - The image model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param prompt - The prompt that should be used to generate the image.
 @param n - Number of images to generate. Default: 1.
 @param size - Size of the images to generate. Must have the format `{width}x{height}`.
@@ -43,9 +45,9 @@ export async function generateImage({
   headers,
 }: {
   /**
-The image model to use.
+The image model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
      */
-  model: ImageModelV1;
+  model: ModelPoolInput<ImageModelV1>;
 
   /**
 The prompt that should be used to generate the image.
@@ -106,11 +108,16 @@ Only applicable for HTTP-based providers.
  */
   headers?: Record<string, string>;
 }): Promise<GenerateImageResult> {
-  const { retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
+
+  const { retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
 
   // default to 1 if the model has not specified limits on
   // how many images can be generated in a single call
-  const maxImagesPerCall = model.maxImagesPerCall ?? 1;
+  const maxImagesPerCall = primaryModel.maxImagesPerCall ?? 1;
 
   // parallelize calls to the model:
   const callCount = Math.ceil(n / maxImagesPerCall);
@@ -124,7 +131,7 @@ Only applicable for HTTP-based providers.
   });
   const results = await Promise.all(
     callImageCounts.map(async callImageCount =>
-      retry(() =>
+      retry(model =>
         model.doGenerate({
           prompt,
           n: callImageCount,

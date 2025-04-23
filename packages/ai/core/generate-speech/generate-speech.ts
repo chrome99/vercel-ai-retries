@@ -13,11 +13,13 @@ import {
   DefaultGeneratedAudioFile,
   GeneratedAudioFile,
 } from './generated-audio-file';
+import { ModelPoolInput } from '../types/model-pool';
+import { normalizeModelPool } from '../util/normalize-pool';
 
 /**
 Generates speech audio using a speech model.
 
-@param model - The speech model to use.
+@param model - The speech model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
 @param text - The text to convert to speech.
 @param voice - The voice to use for speech generation.
 @param outputFormat - The output format to use for speech generation e.g. "mp3", "wav", etc.
@@ -44,9 +46,9 @@ export async function generateSpeech({
   headers,
 }: {
   /**
-The speech model to use.
+The speech model or an ordered list of fallback models. Retries move through the list; the last model is retried until retries are exhausted.
      */
-  model: SpeechModelV1;
+  model: ModelPoolInput<SpeechModelV1>;
 
   /**
 The text to convert to speech.
@@ -105,9 +107,14 @@ Only applicable for HTTP-based providers.
  */
   headers?: Record<string, string>;
 }): Promise<SpeechResult> {
-  const { retry } = prepareRetries({ maxRetries: maxRetriesArg });
+  const { fallbackModels, primaryModel } = normalizeModelPool(model);
 
-  const result = await retry(() =>
+  const { retry } = prepareRetries({
+    maxRetries: maxRetriesArg,
+    fallbackModels,
+  });
+
+  const result = await retry(model =>
     model.doGenerate({
       text,
       voice,
